@@ -64,6 +64,13 @@ class Definitions {
     {"type":"function","name":"AllowProxyUnlock","inputs":[]}
   ]''';
 
+  static final String _ptlcDefinition = '''[
+    {"type":"function","name":"Create", "inputs":[{"name":"expirationTime","type":"int64"},{"name":"pointType","type":"uint8"},{"name":"pointLock","type":"bytes"},{"name":"destination","type":"address"}]},
+    {"type":"function","name":"Reclaim","inputs":[{"name":"id","type":"hash"}]},
+    {"type":"function","name":"Unlock","inputs":[{"name":"id","type":"hash"},{"name":"signature","type":"bytes"}]},
+    {"type":"function","name":"ProxyUnlock","inputs":[{"name":"id","type":"hash"},{"name":"destination","type":"address"},{"name":"signature","type":"bytes"}]}
+  ]''';
+
   static final String _bridgeDefinition = '''[
     {"type":"function","name":"WrapToken","inputs":[{"name":"networkClass","type":"uint32"},{"name":"chainId","type":"uint32"},{"name":"toAddress","type":"string"}]},
     {"type":"function","name":"UpdateWrapRequest","inputs":[{"name":"id","type":"hash"},{"name":"signature","type":"string"}]},
@@ -129,5 +136,6 @@ class Definitions {
   static final Abi liquidity = Abi.fromJson(_liquidityDefinition);
   static final Abi spork = Abi.fromJson(_sporkDefinition);
   static final Abi htlc = Abi.fromJson(_htlcDefinition);
+  static final Abi ptlc = Abi.fromJson(_ptlcDefinition);
   static final Abi common = Abi.fromJson(_commonDefinition);
 }

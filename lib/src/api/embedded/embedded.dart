@@ -1,6 +1,7 @@
 export 'accelerator.dart';
 export 'bridge.dart';
 export 'htlc.dart';
+export 'ptlc.dart';
 export 'liquidity.dart';
 export 'pillar.dart';
 export 'plasma.dart';

@@ -1,4 +1,7 @@
+import 'package:znn_sdk_dart/src/crypto/ed25519_point.dart';
+import 'package:znn_sdk_dart/src/crypto/secp256k1.dart';
 import 'package:znn_sdk_dart/src/embedded/constants.dart';
+import 'package:znn_sdk_dart/src/model/primitives.dart';
 
 class Validations {
   static String? tokenName(String? value) {
@@ -90,6 +93,72 @@ class Validations {
       }
       if (value.length > projectDescriptionMaxLength) {
         return 'Project description must have maximum $projectDescriptionMaxLength characters';
+      }
+      return null;
+    } else {
+      return 'Value is null';
+    }
+  }
+
+  static String? ptlcPointLock(int pointType, List<int>? value) {
+    if (value != null) {
+      final size = ptlcPointLockSizes[pointType];
+      if (size == null) {
+        return 'Point type $pointType is not supported';
+      }
+      if (value.length != size) {
+        return 'Point lock must have $size bytes';
+      }
+      switch (pointType) {
+        case ptlcPointTypeEd25519:
+          if (!Ed25519Point.isValidLock(value)) {
+            return 'Point lock is not a valid Ed25519 public key';
+          }
+          break;
+        case ptlcPointTypeBip340:
+          if (Secp256k1.liftX(value) == null) {
+            return 'Point lock is not a valid BIP-340 public key';
+          }
+          break;
+        case ptlcPointTypeSecp256k1Point:
+          if (Secp256k1.parseCompressed(value) == null) {
+            return 'Point lock is not a valid compressed secp256k1 point';
+          }
+          break;
+      }
+      return null;
+    } else {
+      return 'Value is null';
+    }
+  }
+
+  static String? ptlcDestination(int pointType, Address? value) {
+    if (value != null) {
+      if (value == emptyAddress) {
+        if (pointType == ptlcPointTypeSecp256k1Point) {
+          return 'A secp256k1 point lock requires a destination';
+        }
+        return null;
+      }
+      if (value.core == null ||
+          value.core!.isEmpty ||
+          value.core![0] != Address.userByte) {
+        return 'Destination must be a user address';
+      }
+      return null;
+    } else {
+      return 'Value is null';
+    }
+  }
+
+  static String? ptlcWitness(int pointType, List<int>? value) {
+    if (value != null) {
+      final size = ptlcWitnessSizes[pointType];
+      if (size == null) {
+        return 'Point type $pointType is not supported';
+      }
+      if (value.length != size) {
+        return 'Witness must have $size bytes';
       }
       return null;
     } else {

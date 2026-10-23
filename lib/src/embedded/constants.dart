@@ -70,6 +70,21 @@ const int htlcPreimageDefaultLength = 32;
 const int htlcHashTypeSha3 = 0;
 const int htlcHashTypeSha256 = 1;
 
+const int ptlcPointTypeEd25519 = 0;
+const int ptlcPointTypeBip340 = 1;
+const int ptlcPointTypeSecp256k1Point = 2;
+const Map<int, int> ptlcPointLockSizes = {
+  ptlcPointTypeEd25519: 32,
+  ptlcPointTypeBip340: 32,
+  ptlcPointTypeSecp256k1Point: 33,
+};
+const Map<int, int> ptlcWitnessSizes = {
+  ptlcPointTypeEd25519: 64,
+  ptlcPointTypeBip340: 64,
+  ptlcPointTypeSecp256k1Point: 32,
+};
+const String ptlcUnlockMessageDomain = 'zenon-ptlc-unlock:v1';
+
 // Bridge
 const int bridgeMinGuardians = 5;
 const int bridgeMaximumFee = 10000;

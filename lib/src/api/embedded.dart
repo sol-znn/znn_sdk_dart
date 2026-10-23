@@ -1,6 +1,7 @@
 import 'package:znn_sdk_dart/src/api/embedded/accelerator.dart';
 import 'package:znn_sdk_dart/src/api/embedded/bridge.dart';
 import 'package:znn_sdk_dart/src/api/embedded/htlc.dart';
+import 'package:znn_sdk_dart/src/api/embedded/ptlc.dart';
 import 'package:znn_sdk_dart/src/api/embedded/liquidity.dart';
 import 'package:znn_sdk_dart/src/api/embedded/spork.dart';
 import 'package:znn_sdk_dart/src/api/embedded/pillar.dart';
@@ -25,6 +26,7 @@ class EmbeddedApi {
   late LiquidityApi liquidity;
   late SporkApi spork;
   late HtlcApi htlc;
+  late PtlcApi ptlc;
 
   void setClient(Client client) {
     this.client = client;
@@ -39,6 +41,7 @@ class EmbeddedApi {
     liquidity.setClient(client);
     spork.setClient(client);
     htlc.setClient(client);
+    ptlc.setClient(client);
   }
 
   EmbeddedApi() {
@@ -53,5 +56,6 @@ class EmbeddedApi {
     liquidity = LiquidityApi();
     spork = SporkApi();
     htlc = HtlcApi();
+    ptlc = PtlcApi();
   }
 }

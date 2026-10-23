@@ -9,3 +9,4 @@ export 'embedded/bridge.dart';
 export 'embedded/liquidity.dart';
 export 'embedded/spork.dart';
 export 'embedded/htlc.dart';
+export 'embedded/ptlc.dart';
