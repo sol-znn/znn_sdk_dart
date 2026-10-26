@@ -25,6 +25,11 @@ dependencies:
       ref: <tag_or_branch>
 ```
 
+## PTLC
+
+The `ptlc` embedded contract, its reclaim lock, BIP-340 and adaptor signatures
+are described in [doc/ptlc.md](doc/ptlc.md).
+
 ## Contributing
 
 Please check CONTRIBUTING for more details.

@@ -151,6 +151,28 @@ class Validations {
     }
   }
 
+  static String? ptlcReclaimLock(int pointType, List<int>? value) {
+    if (value != null) {
+      if (!ptlcReclaimPointTypes.contains(pointType)) {
+        return 'Reclaim point type must be Ed25519 (0) or BIP-340 (1)';
+      }
+      return ptlcPointLock(pointType, value);
+    } else {
+      return 'Value is null';
+    }
+  }
+
+  static String? ptlcReclaimSignature(List<int>? value) {
+    if (value != null) {
+      if (value.length != ptlcReclaimSignatureSize) {
+        return 'Reclaim signature must have $ptlcReclaimSignatureSize bytes';
+      }
+      return null;
+    } else {
+      return 'Value is null';
+    }
+  }
+
   static String? ptlcWitness(int pointType, List<int>? value) {
     if (value != null) {
       final size = ptlcWitnessSizes[pointType];

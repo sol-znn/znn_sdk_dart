@@ -29,6 +29,16 @@ Token token(TokenStandard tokenStandard) => Token(
     true,
     true);
 
+PtlcInfo terms(Map<String, dynamic> t) => PtlcInfo(
+    id: emptyHash,
+    timeLocked: Address.parse(t['timeLocked']),
+    tokenStandard: TokenStandard.parse(t['tokenStandard']),
+    amount: BigInt.parse(t['amount']),
+    expirationTime: t['expirationTime'] as int,
+    pointType: t['pointType'] as int,
+    pointLock: bytes(t['pointLock']),
+    destination: Address.parse(t['destination']));
+
 void main() {
   group('contract address', () {
     test('is the embedded ptlc address', () {
@@ -283,10 +293,26 @@ void main() {
             block = api.proxyUnlock(
                 Hash.parse(a[0]), Address.parse(a[1]), bytes(a[2]));
             break;
+          case 'CreateWithReclaimLock':
+            block = api.createWithReclaimLock(
+                token(znnZts),
+                BigInt.one,
+                a[0] as int,
+                a[1] as int,
+                bytes(a[2]),
+                Address.parse(a[3]),
+                a[4] as int,
+                bytes(a[5]));
+            break;
+          case 'ReclaimWithSignature':
+            block = api.reclaimWithSignature(Hash.parse(a[0]), bytes(a[1]));
+            break;
+          default:
+            fail('no encoder for ${r['method']}');
         }
         expect(hexOf(block.data), r['data'], reason: '${r['method']} $a');
         expect(block.toAddress, ptlcAddress);
-        if (r['method'] != 'Create') {
+        if (!(r['method'] as String).startsWith('Create')) {
           expect(block.amount, BigInt.zero);
         }
       }
@@ -306,9 +332,241 @@ void main() {
       }
     });
 
-    test('names the four contract methods', () {
-      expect(Definitions.ptlc.entries.map((e) => e.name),
-          ['Create', 'Reclaim', 'Unlock', 'ProxyUnlock']);
+    test('names the six contract methods', () {
+      expect(Definitions.ptlc.entries.map((e) => e.name), [
+        'Create',
+        'Reclaim',
+        'Unlock',
+        'ProxyUnlock',
+        'CreateWithReclaimLock',
+        'ReclaimWithSignature'
+      ]);
+    });
+
+    test('covers every method', () {
+      expect(rows('abi').map((r) => r['method']).toSet(),
+          Definitions.ptlc.entries.map((e) => e.name).toSet());
+    });
+  });
+
+  group('reclaim message', () {
+    test('matches go-zenon for every row', () {
+      final list = rows('reclaimMessage');
+      expect(list.length, greaterThan(100));
+      for (final r in list) {
+        final message = PtlcApi.reclaimMessageOf(r['chainIdentifier'] as int,
+            r['reclaimPointType'] as int, terms(r['terms']));
+        expect(hexOf(message), r['message'], reason: '${r['terms']}');
+      }
+    });
+
+    test('matches the known answers in go-zenon', () {
+      Address raw(String value) => Address('z', bytes(value));
+      final creator = raw('0022222222222222222222222222222222222222');
+      final otherCreator = raw('0033333333333333333333333333333333333333');
+      final destination = raw('0044444444444444444444444444444444444444');
+      final tokenStandard = TokenStandard.fromBytes(List.filled(10, 0x55));
+      final otherToken = TokenStandard.fromBytes(List.filled(10, 0x66));
+      PtlcInfo base() => PtlcInfo(
+          id: Hash.fromBytes(List.filled(32, 0x11)),
+          timeLocked: creator,
+          tokenStandard: tokenStandard,
+          amount: BigInt.from(0x3b9aca00),
+          expirationTime: 1700000000,
+          pointType: ptlcPointTypeEd25519,
+          pointLock: List.filled(32, 0x11),
+          destination: destination);
+      void none(PtlcInfo e) {}
+      final cases = <List<dynamic>>[
+        [69, 0, none, 'b6fd4d7c9f732211766f9e04cbcfc7ed0d57771cddf601645b71ed11fa7e692b'],
+        [0, 0, none, '056ef85081335a8a1507920693dbd6266adbe9ba354114a80326fb70501f5dd7'],
+        [-1, 0, none, 'b4fa3ba079ea07710c03e82ce84521ddeb1f01d05fc5228bbfbe3ed4f99617bd'],
+        [0x0102030405060708, 0, none, '3f7b83457ddfabfb9ea4ddad347e18c7d91b8ffbd29c5d96ee8e0f9a7d979fd6'],
+        [69, 1, none, '1cf43f99a8331e729eb7c76ed5370ca466ecb593635ce75e8d491cda7475cadf'],
+        [69, 0, (PtlcInfo e) => e.timeLocked = otherCreator, '70e4b33c933980d87ad8c6551f6c4033062bdb62817f3241b27e11db31b8da56'],
+        [69, 0, (PtlcInfo e) => e.destination = emptyAddress, '09f9fe595a23a31c62a140993bcce9990f06578e1d7b996792520f5798f2b96b'],
+        [69, 0, (PtlcInfo e) => e.tokenStandard = otherToken, '78187a3e26b9373bb2bf72f4c22a5e2f26653d058983c767536d19326615b070'],
+        [69, 0, (PtlcInfo e) => e.amount = BigInt.one, 'b51053faab6fac9c5fea266d01c9dfc497ce14dbe5230632c672ca496a3c2698'],
+        [69, 0, (PtlcInfo e) => e.amount = (BigInt.one << 256) - BigInt.one, 'a05d1cda114918a1ffdce6f4e8294ab2156c1a16deebaae7e001548abf12f596'],
+        [69, 0, (PtlcInfo e) => e.expirationTime = 0x0102030405060708, 'ef413d368802d2c5c130cfa81214934e612a197558d0a036ffd2838f68e1ded2'],
+        [
+          69,
+          0,
+          (PtlcInfo e) {
+            e.pointType = ptlcPointTypeSecp256k1Point;
+            e.pointLock = [0x02, ...List.filled(32, 0x11)];
+          },
+          'e9f7486805038bdff0696b86b4a169399f2353fe09ed9c4c0262ab8b4a650ac5'
+        ],
+        [69, 0, (PtlcInfo e) => e.pointLock = List<int>.generate(32, (i) => i), '6ba40a6c48d53de71ae09c2b32638ec174c0d629c5f1c17eaa29e9b5eb0e84c7'],
+      ];
+      for (final c in cases) {
+        final entry = base();
+        (c[2] as Function)(entry);
+        expect(
+            hexOf(PtlcApi.reclaimMessageOf(c[0] as int, c[1] as int, entry)),
+            c[3]);
+      }
+    });
+
+    test('binds the terms, not the id', () {
+      final entry = terms(rows('reclaimMessage').first['terms']);
+      final message = hexOf(PtlcApi.reclaimMessageOf(69, 1, entry));
+      entry.id = Hash.digest([4, 5, 6]);
+      expect(hexOf(PtlcApi.reclaimMessageOf(69, 1, entry)), message);
+      expect(hexOf(PtlcApi.unlockMessage(69, 1, entry.id, entry.destination)),
+          isNot(message));
+      expect(hexOf(PtlcApi.reclaimMessageOf(69, 0, entry)), isNot(message));
+    });
+  });
+
+  group('reclaim lock', () {
+    test('is accepted exactly when the contract accepts it', () {
+      final list = rows('reclaimLock');
+      expect(list.length, greaterThan(200));
+      var accepted = 0;
+      for (final r in list) {
+        final problem = Validations.ptlcReclaimLock(
+            r['pointType'] as int, bytes(r['pointLock']));
+        expect(problem == null, (r['error'] as String).isEmpty,
+            reason:
+                'type ${r['pointType']} lock ${r['pointLock']} (${r['note']}): $problem / ${r['error']}');
+        if (problem == null) accepted++;
+      }
+      expect(accepted, greaterThan(50));
+    });
+
+    test('refuses a point type, which opens with a scalar', () {
+      final point = Secp256k1.scalarToPoint(BigInt.from(7));
+      expect(Validations.ptlcPointLock(ptlcPointTypeSecp256k1Point, point),
+          isNull);
+      expect(Validations.ptlcReclaimLock(ptlcPointTypeSecp256k1Point, point),
+          isNotNull);
+      expect(Validations.ptlcReclaimLock(ptlcPointTypeBip340, null), isNotNull);
+    });
+
+    test('create is accepted exactly when the contract accepts it', () {
+      final list = rows('createWithReclaimLock');
+      expect(list.length, greaterThan(50));
+      for (final r in list) {
+        final pointType = r['pointType'] as int;
+        final problem =
+            Validations.ptlcPointLock(pointType, bytes(r['pointLock'])) ??
+                Validations.ptlcDestination(
+                    pointType, Address.parse(r['destination'])) ??
+                Validations.ptlcReclaimLock(
+                    r['reclaimPointType'] as int, bytes(r['reclaimPointLock']));
+        expect(problem == null, (r['error'] as String).isEmpty,
+            reason: '$r: $problem');
+      }
+    });
+
+    test('reads and writes the json go-zenon serves', () {
+      for (final s in (vectors['reclaimLockInfo'] as List).cast<String>()) {
+        final json = jsonDecode(s) as Map<String, dynamic>;
+        final lock = PtlcReclaimLock.fromJson(json);
+        expect(lock.toJson(), json);
+        expect(Validations.ptlcReclaimLock(lock.pointType, lock.pointLock),
+            isNull);
+      }
+    });
+  });
+
+  group('reclaim signature', () {
+    test('verifies exactly when the contract verifies it', () async {
+      final list = rows('reclaimSignature');
+      expect(list.length, greaterThan(50));
+      var valid = 0;
+      for (final r in list) {
+        final ok = await PtlcApi.verifyReclaimSignature(
+            r['chainIdentifier'] as int,
+            terms(r['terms']),
+            r['reclaimPointType'] as int,
+            bytes(r['reclaimPointLock']),
+            bytes(r['signature']));
+        expect(ok, (r['error'] as String).isEmpty,
+            reason: '${r['note']}: ${r['error']}');
+        if (ok) valid++;
+      }
+      expect(valid, greaterThan(20));
+      expect(valid, lessThan(list.length));
+    });
+
+    test('has 64 bytes', () {
+      expect(Validations.ptlcReclaimSignature(List.filled(64, 0)), isNull);
+      expect(Validations.ptlcReclaimSignature(List.filled(65, 0)), isNotNull);
+      expect(Validations.ptlcReclaimSignature(List.filled(32, 0)), isNotNull);
+      expect(Validations.ptlcReclaimSignature(null), isNotNull);
+    });
+
+    test('signatures made here verify for their terms only', () async {
+      final entry = terms(rows('reclaimMessage').first['terms']);
+      final other = terms(rows('reclaimMessage').first['terms'])
+        ..expirationTime += 1;
+      final seed = Bip340.sha256([21]);
+
+      final edKey = await Crypto.getPublicKey(seed);
+      final edSignature = await Crypto.sign(
+          PtlcApi.reclaimMessageOf(69, ptlcPointTypeEd25519, entry),
+          seed,
+          edKey);
+      expect(
+          await PtlcApi.verifyReclaimSignature(
+              69, entry, ptlcPointTypeEd25519, edKey, edSignature),
+          isTrue);
+      expect(
+          await PtlcApi.verifyReclaimSignature(
+              69, other, ptlcPointTypeEd25519, edKey, edSignature),
+          isFalse);
+      expect(
+          await PtlcApi.verifyReclaimSignature(
+              3, entry, ptlcPointTypeEd25519, edKey, edSignature),
+          isFalse);
+
+      final bipKey = Bip340.publicKey(seed);
+      final bipSignature = Bip340.sign(
+          seed,
+          PtlcApi.reclaimMessageOf(69, ptlcPointTypeBip340, entry),
+          Bip340.sha256([22]));
+      expect(
+          await PtlcApi.verifyReclaimSignature(
+              69, entry, ptlcPointTypeBip340, bipKey, bipSignature),
+          isTrue);
+      expect(
+          await PtlcApi.verifyReclaimSignature(
+              69, other, ptlcPointTypeBip340, bipKey, bipSignature),
+          isFalse);
+      expect(
+          await PtlcApi.verifyReclaimSignature(
+              69, entry, ptlcPointTypeEd25519, bipKey, bipSignature),
+          isFalse);
+    });
+
+    test(
+        'an adaptor pre-signature completes into a reclaim and reveals the secret',
+        () async {
+      final entry = terms(rows('reclaimMessage').first['terms']);
+      final key = Bip340.sha256([31]);
+      final reclaimLock = Bip340.publicKey(key);
+      final secret = Secp256k1.parseScalar(Bip340.sha256([32]))!;
+      final adaptor = Secp256k1.scalarToPoint(secret);
+      final message = PtlcApi.reclaimMessageOf(69, ptlcPointTypeBip340, entry);
+
+      final preSignature =
+          Bip340.adaptorSign(key, message, adaptor, Bip340.sha256([33]));
+      expect(Bip340.adaptorVerify(reclaimLock, message, adaptor, preSignature),
+          isTrue);
+      expect(
+          await PtlcApi.verifyReclaimSignature(69, entry, ptlcPointTypeBip340,
+              reclaimLock, preSignature.sublist(0, 64)),
+          isFalse);
+
+      final signature = Bip340.adaptorComplete(preSignature, secret);
+      expect(
+          await PtlcApi.verifyReclaimSignature(
+              69, entry, ptlcPointTypeBip340, reclaimLock, signature),
+          isTrue);
+      expect(Bip340.adaptorExtract(preSignature, signature), secret);
     });
   });
 

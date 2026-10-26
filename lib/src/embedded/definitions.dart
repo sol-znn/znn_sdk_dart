@@ -68,7 +68,9 @@ class Definitions {
     {"type":"function","name":"Create", "inputs":[{"name":"expirationTime","type":"int64"},{"name":"pointType","type":"uint8"},{"name":"pointLock","type":"bytes"},{"name":"destination","type":"address"}]},
     {"type":"function","name":"Reclaim","inputs":[{"name":"id","type":"hash"}]},
     {"type":"function","name":"Unlock","inputs":[{"name":"id","type":"hash"},{"name":"signature","type":"bytes"}]},
-    {"type":"function","name":"ProxyUnlock","inputs":[{"name":"id","type":"hash"},{"name":"destination","type":"address"},{"name":"signature","type":"bytes"}]}
+    {"type":"function","name":"ProxyUnlock","inputs":[{"name":"id","type":"hash"},{"name":"destination","type":"address"},{"name":"signature","type":"bytes"}]},
+    {"type":"function","name":"CreateWithReclaimLock", "inputs":[{"name":"expirationTime","type":"int64"},{"name":"pointType","type":"uint8"},{"name":"pointLock","type":"bytes"},{"name":"destination","type":"address"},{"name":"reclaimPointType","type":"uint8"},{"name":"reclaimPointLock","type":"bytes"}]},
+    {"type":"function","name":"ReclaimWithSignature","inputs":[{"name":"id","type":"hash"},{"name":"signature","type":"bytes"}]}
   ]''';
 
   static final String _bridgeDefinition = '''[

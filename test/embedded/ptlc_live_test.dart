@@ -63,6 +63,48 @@ Future<Hash> create(int pointType, List<int> pointLock, Address destination,
   return sent.hash;
 }
 
+PtlcInfo terms(int expirationTime, int pointType, List<int> pointLock,
+        Address destination) =>
+    PtlcInfo(
+        id: emptyHash,
+        timeLocked: self,
+        tokenStandard: znnZts,
+        amount: BigInt.one,
+        expirationTime: expirationTime,
+        pointType: pointType,
+        pointLock: pointLock,
+        destination: destination);
+
+Future<Hash> createWithReclaimLock(PtlcInfo entry, int reclaimPointType,
+    List<int> reclaimPointLock) async {
+  expect(Validations.ptlcReclaimLock(reclaimPointType, reclaimPointLock),
+      isNull);
+  final sent = await znn.send(
+      znn.embedded.ptlc.createWithReclaimLock(
+          await token(),
+          entry.amount,
+          entry.expirationTime,
+          entry.pointType,
+          entry.pointLock,
+          entry.destination,
+          reclaimPointType,
+          reclaimPointLock),
+      currentKeyPair: creator);
+  final receive = await confirmedReceive(sent.hash);
+  expect(accepted(receive), isTrue, reason: 'create with reclaim lock');
+  final lock = await znn.embedded.ptlc.getReclaimLockById(sent.hash);
+  expect(lock.id, sent.hash);
+  expect(lock.pointType, reclaimPointType);
+  expect(lock.pointLock, reclaimPointLock);
+  return sent.hash;
+}
+
+Future<void> waitPast(int expirationTime) async {
+  while ((await frontier()).timestamp < expirationTime + 10) {
+    await Future.delayed(const Duration(seconds: 5));
+  }
+}
+
 Future<Token> token() async => (await znn.embedded.token.getByZts(znnZts))!;
 
 void expectPayout(AccountBlock receive, Address to) {
@@ -232,6 +274,92 @@ void main() {
       await expectGone(id);
     });
 
+    test(
+        'a reclaim lock takes back only with a signature under it, which reveals the adaptor secret',
+        () async {
+      final counterparty =
+          Bip340.sha256([15, ...DateTime.now().toString().codeUnits]);
+      final reclaimLock = Bip340.publicKey(counterparty);
+      final unlockKey = Bip340.publicKey(Bip340.sha256([16]));
+      final adaptorSecret = Secp256k1.parseScalar(Bip340.sha256([17]))!;
+      final adaptor = Secp256k1.scalarToPoint(adaptorSecret);
+
+      final entry = terms((await frontier()).timestamp + 400,
+          ptlcPointTypeBip340, unlockKey, other);
+      final message =
+          PtlcApi.reclaimMessageOf(chainIdentifier, ptlcPointTypeBip340, entry);
+      final preSignature = Bip340.adaptorSign(
+          counterparty, message, adaptor, Bip340.sha256([18]));
+      expect(Bip340.adaptorVerify(reclaimLock, message, adaptor, preSignature),
+          isTrue);
+
+      final id =
+          await createWithReclaimLock(entry, ptlcPointTypeBip340, reclaimLock);
+      final plainId = await create(ptlcPointTypeSecp256k1Point,
+          Secp256k1.scalarToPoint(BigInt.from(99)), self,
+          seconds: 40);
+      final stored = await znn.embedded.ptlc.getById(id);
+      expect(
+          PtlcApi.reclaimMessageOf(
+              chainIdentifier, ptlcPointTypeBip340, stored),
+          message);
+
+      final signature = Bip340.adaptorComplete(preSignature, adaptorSecret);
+      expect(
+          await PtlcApi.verifyReclaimSignature(chainIdentifier, stored,
+              ptlcPointTypeBip340, reclaimLock, signature),
+          isTrue);
+      final early =
+          await call(znn.embedded.ptlc.reclaimWithSignature(id, signature));
+      expect(accepted(early), isFalse);
+
+      await waitPast(entry.expirationTime);
+      final plain = await call(znn.embedded.ptlc.reclaim(id));
+      expect(accepted(plain), isFalse);
+      final unsigned = await call(znn.embedded.ptlc
+          .reclaimWithSignature(id, preSignature.sublist(0, 64)));
+      expect(accepted(unsigned), isFalse);
+      expect((await znn.embedded.ptlc.getById(id)).id, id);
+
+      final sent = await znn.send(
+          znn.embedded.ptlc.reclaimWithSignature(id, signature),
+          currentKeyPair: creator);
+      expectPayout(await confirmedReceive(sent.hash), self);
+      await expectGone(id);
+      await expectLater(
+          znn.embedded.ptlc.getReclaimLockById(id), throwsA(anything));
+      final published = await znn.ledger.getAccountBlockByHash(sent.hash);
+      final args = Definitions.ptlc.decodeFunction(published!.data) as List;
+      expect(Bip340.adaptorExtract(preSignature, args[1] as List<int>),
+          adaptorSecret);
+
+      final wrongMethod = await call(
+          znn.embedded.ptlc.reclaimWithSignature(plainId, signature));
+      expect(accepted(wrongMethod), isFalse);
+      expectPayout(await call(znn.embedded.ptlc.reclaim(plainId)), self);
+    }, timeout: const Timeout(Duration(minutes: 20)));
+
+    test('an entry with a reclaim lock still unlocks, and its lock goes with it',
+        () async {
+      final secret =
+          Bip340.sha256([19, ...DateTime.now().toString().codeUnits]);
+      final key = Bip340.publicKey(secret);
+      final reclaimKey = await Crypto.getPublicKey(Bip340.sha256([20]));
+      final id = await createWithReclaimLock(
+          terms((await frontier()).timestamp + 3600, ptlcPointTypeBip340, key,
+              emptyAddress),
+          ptlcPointTypeEd25519,
+          reclaimKey);
+      final witness = Bip340.sign(
+          secret,
+          PtlcApi.unlockMessage(chainIdentifier, ptlcPointTypeBip340, id, self),
+          Bip340.sha256([21]));
+      expectPayout(await call(znn.embedded.ptlc.unlock(id, witness)), self);
+      await expectGone(id);
+      await expectLater(
+          znn.embedded.ptlc.getReclaimLockById(id), throwsA(anything));
+    });
+
     test('the node refuses what the validations refuse', () async {
       final t = await token();
       final expiration = (await frontier()).timestamp + 3600;
@@ -262,6 +390,33 @@ void main() {
           znn.embedded.ptlc.unlock(Hash.digest([1]), List.filled(40, 1)));
       await expectRefusedAtPublish(znn.embedded.ptlc
           .proxyUnlock(Hash.digest([1]), htlcAddress, List.filled(32, 1)));
+
+      final key = Bip340.publicKey(Bip340.sha256([22]));
+      expect(Validations.ptlcReclaimLock(ptlcPointTypeSecp256k1Point, point),
+          isNotNull);
+      await expectRefusedAtPublish(znn.embedded.ptlc.createWithReclaimLock(
+          t,
+          BigInt.one,
+          expiration,
+          ptlcPointTypeBip340,
+          key,
+          emptyAddress,
+          ptlcPointTypeSecp256k1Point,
+          point));
+      expect(Validations.ptlcReclaimLock(ptlcPointTypeEd25519, smallOrder),
+          isNotNull);
+      await expectRefusedAtPublish(znn.embedded.ptlc.createWithReclaimLock(
+          t,
+          BigInt.one,
+          expiration,
+          ptlcPointTypeBip340,
+          key,
+          emptyAddress,
+          ptlcPointTypeEd25519,
+          smallOrder));
+      expect(Validations.ptlcReclaimSignature(List.filled(63, 1)), isNotNull);
+      await expectRefusedAtPublish(znn.embedded.ptlc
+          .reclaimWithSignature(Hash.digest([1]), List.filled(63, 1)));
     });
   },
       skip: skip,

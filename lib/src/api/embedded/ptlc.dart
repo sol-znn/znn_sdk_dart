@@ -21,6 +21,44 @@ class PtlcApi {
     return PtlcInfo.fromJson(response!);
   }
 
+  Future<PtlcReclaimLock> getReclaimLockById(Hash id) async {
+    var response = await client
+        .sendRequest('embedded.ptlc.getReclaimLockById', [id.toString()]);
+    return PtlcReclaimLock.fromJson(response!);
+  }
+
+  AccountBlockTemplate createWithReclaimLock(
+      Token token,
+      BigInt amount,
+      int expirationTime,
+      int pointType,
+      List<int> pointLock,
+      Address destination,
+      int reclaimPointType,
+      List<int> reclaimPointLock) {
+    return AccountBlockTemplate.callContract(
+        ptlcAddress,
+        token.tokenStandard,
+        amount,
+        Definitions.ptlc.encodeFunction('CreateWithReclaimLock', [
+          expirationTime,
+          pointType,
+          pointLock,
+          destination,
+          reclaimPointType,
+          reclaimPointLock
+        ]));
+  }
+
+  AccountBlockTemplate reclaimWithSignature(Hash id, List<int> signature) {
+    return AccountBlockTemplate.callContract(
+        ptlcAddress,
+        znnZts,
+        BigInt.zero,
+        Definitions.ptlc.encodeFunction(
+            'ReclaimWithSignature', [id.getBytes(), signature]));
+  }
+
   AccountBlockTemplate create(Token token, BigInt amount, int expirationTime,
       int pointType, List<int> pointLock, Address destination) {
     return AccountBlockTemplate.callContract(
@@ -92,6 +130,72 @@ class PtlcApi {
         return scalar != null &&
             const ListEquality<int>()
                 .equals(Secp256k1.scalarToPoint(scalar), pointLock);
+    }
+    return false;
+  }
+
+  static List<int> reclaimMessage(
+      int chainIdentifier,
+      int reclaimPointType,
+      Address timeLocked,
+      Address destination,
+      TokenStandard tokenStandard,
+      BigInt amount,
+      int expirationTime,
+      int pointType,
+      List<int> pointLock) {
+    final chain = Uint8List(8);
+    ByteData.view(chain.buffer).setUint64(0, chainIdentifier, Endian.big);
+    final expiration = Uint8List(8);
+    ByteData.view(expiration.buffer).setInt64(0, expirationTime, Endian.big);
+    return Crypto.digest([
+      ...ptlcReclaimMessageDomain.codeUnits,
+      ...chain,
+      ...ptlcAddress.getBytes()!,
+      reclaimPointType,
+      ...timeLocked.getBytes()!,
+      ...destination.getBytes()!,
+      ...tokenStandard.getBytes(),
+      ...Secp256k1.bigIntToBytes(amount, 32),
+      ...expiration,
+      pointType,
+      ...pointLock,
+    ]);
+  }
+
+  static List<int> reclaimMessageOf(
+      int chainIdentifier, int reclaimPointType, PtlcInfo entry) {
+    return reclaimMessage(
+        chainIdentifier,
+        reclaimPointType,
+        entry.timeLocked,
+        entry.destination,
+        entry.tokenStandard,
+        entry.amount,
+        entry.expirationTime,
+        entry.pointType,
+        entry.pointLock);
+  }
+
+  static Future<bool> verifyReclaimSignature(
+      int chainIdentifier,
+      PtlcInfo entry,
+      int reclaimPointType,
+      List<int> reclaimPointLock,
+      List<int> signature) async {
+    if (Validations.ptlcReclaimLock(reclaimPointType, reclaimPointLock) !=
+        null) {
+      return false;
+    }
+    if (Validations.ptlcReclaimSignature(signature) != null) {
+      return false;
+    }
+    final message = reclaimMessageOf(chainIdentifier, reclaimPointType, entry);
+    switch (reclaimPointType) {
+      case ptlcPointTypeEd25519:
+        return _verifyEd25519(reclaimPointLock, message, signature);
+      case ptlcPointTypeBip340:
+        return Bip340.verify(reclaimPointLock, message, signature);
     }
     return false;
   }

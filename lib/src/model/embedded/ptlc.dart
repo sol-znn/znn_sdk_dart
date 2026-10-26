@@ -44,3 +44,23 @@ class PtlcInfo {
         'destination': destination.toString()
       };
 }
+
+class PtlcReclaimLock {
+  Hash id;
+  int pointType;
+  List<int> pointLock;
+
+  PtlcReclaimLock(
+      {required this.id, required this.pointType, required this.pointLock});
+
+  PtlcReclaimLock.fromJson(Map<String, dynamic> json)
+      : id = Hash.parse(json['id']),
+        pointType = json['pointType'],
+        pointLock = BytesUtils.base64ToBytes(json['pointLock'] ?? '') ?? [];
+
+  Map<String, dynamic> toJson() => {
+        'id': id.toString(),
+        'pointType': pointType,
+        'pointLock': BytesUtils.bytesToBase64(pointLock)
+      };
+}

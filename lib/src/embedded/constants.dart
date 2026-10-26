@@ -84,6 +84,12 @@ const Map<int, int> ptlcWitnessSizes = {
   ptlcPointTypeSecp256k1Point: 32,
 };
 const String ptlcUnlockMessageDomain = 'zenon-ptlc-unlock:v1';
+const String ptlcReclaimMessageDomain = 'zenon-ptlc-reclaim:v1';
+const int ptlcReclaimSignatureSize = 64;
+const List<int> ptlcReclaimPointTypes = [
+  ptlcPointTypeEd25519,
+  ptlcPointTypeBip340,
+];
 
 // Bridge
 const int bridgeMinGuardians = 5;
